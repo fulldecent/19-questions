@@ -4,7 +4,7 @@
 A machine learning model and game which asks you questions to learn what object
 you are thinking about.
 
-Access the demo site at: DEMO SITE
+Access the demo site at: https://phor.net/apps/19q/
 
 Install
 -------
