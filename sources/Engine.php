@@ -1,297 +1,361 @@
 <?php
 namespace NineteenQ;
 
-# WARNING: these functions (except the creator) can be used for SQL injection
 class Engine
 {
-  var $database;
+  private $database;
 
-  var $state;               // a token to describe this state
-  var $yesQ, $noQ, $skipQ, $guesses;  // questionsids describing my state
-  var $pastQuestions;       // has arrays of <question, subtext, answer (one of yes|no|skip)>
-  var $maxFreq;             // frequency of top object
-  var $debug;               // an array, each element is a debug event
+  /**
+   * A string describing game state
+   * Example: y23n359s293y3y28
+   * Meaning: the user replied YES to question #23, and replied NO to ...
+   * @var string
+   */
+  var $state;
 
-  // State is a string like: y23n359s293y3y28
-  // meaning: the user replied YES to question #23, and replied NO to ...
+  /// Question IDs describing my state
+  var $yesses, $noes, $skips;
+
+  /// Object IDs that I guessed that were wrong
+  var $guesses;
+
+  // [[QUESTION_NAME, QUESTION_SUBNAME, YES/NO/SKIP]]
+  var $askedQuestions = [];
+
+  var $objectEntropy = NULL; // Entropy of estimated object likelihoods
+  var $objectSumLikelihood; // Sum of likelihoods
+  var $objectSumLLL;     // Sum of (likelihood * log(likelihood))
+
+  var $debug = []; // Random info
+
   function __construct($state = '')
   {
-    $this->database = new \NineteenQ\Db("mysql:host=127.0.0.1;port=8889;dbname=19q", "root", "aoeusnth");
-    $this->state = $state;
+    $start = microtime(true);
+    $this->database = new \NineteenQ\Db();
+    $questionStatement = $this->database->prepare('SELECT name, subname FROM questions WHERE questionid=?');
+    $objectStatement = $this->database->prepare('SELECT name, subname FROM objects WHERE objectid=?');
 
     ##
     ## Parse the STATE string
     ##
-    $this->yesQ = $this->noQ = $this->skipQ = array();
-    $this->pastQuestions = array();
+    $this->yesses = $this->noes = $this->skips = $this->guesses = [];
+    $this->askedQuestions = [];
     preg_match_all('/([ynsg])(\d+)/', $state, $regs, PREG_SET_ORDER);
     foreach ($regs as $reg) {
-      if ($reg[1]=='y') {
-        $dh = $this->query('SELECT name, sub FROM questions WHERE id='.$reg[2]);
-        list($name, $sub) = mysql_fetch_array($dh);
-        $this->yesQ[] = $reg[2];
-        $this->pastQuestions[] = array($name, $sub, 'yes', $reg[2]);
-      } elseif ($reg[1]=='n') {
-        $dh = $this->query('SELECT name, sub FROM questions WHERE id='.$reg[2]);
-        list($name, $sub) = mysql_fetch_array($dh);
-        $this->noQ[] = $reg[2];
-        $this->pastQuestions[] = array($name, $sub, 'no', $reg[2]);
-      } elseif ($reg[1]=='s') {
-        $dh = $this->query('SELECT name, sub FROM questions WHERE id='.$reg[2]);
-        list($name, $sub) = mysql_fetch_array($dh);
-        $this->skipQ[] = $reg[2];
-        $this->pastQuestions[] = array($name, $sub, 'skip', $reg[2]);
-      } elseif ($reg[1]=='g') {
-        $this->guesses[] = $reg[2];
-        $dh = $this->query('SELECT name, sub FROM objects WHERE id='.$reg[2]);
-        list($name, $sub) = mysql_fetch_array($dh);
-        $this->pastQuestions[] = array('I am guessing that it is '.$name, $sub, 'wrong', $reg[2]);
+      switch ($reg[1]) {
+        case 'y':
+          $questionStatement->execute([$reg[2]]);
+          list($name, $sub) = $questionStatement->fetch(\PDO::FETCH_NUM);
+          $this->yesses[] = $reg[2];
+          $this->askedQuestions[] = array($name, $sub, 'yes', $reg[2]);
+          break;
+        case 'n':
+          $questionStatement->execute([$reg[2]]);
+          list($name, $sub) = $questionStatement->fetch(\PDO::FETCH_NUM);
+          $this->noes[] = $reg[2];
+          $this->askedQuestions[] = array($name, $sub, 'no', $reg[2]);
+          break;
+        case 's':
+          $questionStatement->execute([$reg[2]]);
+          list($name, $sub) = $questionStatement->fetch(\PDO::FETCH_NUM);
+          $this->skips[] = $reg[2];
+          $this->askedQuestions[] = array($name, $sub, 'skip', $reg[2]);
+          break;
+        case 'g':
+          $questionStatement->execute([$reg[2]]);
+          list($name, $sub) = $objectStatement->fetch(\PDO::FETCH_NUM);
+          $this->guesses[] = $reg[2];
+          $this->askedQuestions[] = array('I am guessing that it is ' . $name, $sub, 'wrong', $reg[2]);
+          break;
+        default:
+          break;
       }
+      $this->state .= $reg[1] . $reg[2];
     }
+    $this->debug[__FUNCTION__] = number_format(microtime(true) - $start, 3) . ' SECONDS';
+  }
 
-    ## MAXIMUM LIKELIHOOD ESTIMATION crash course:
-    ## 7 people told us "cats are big", 3 said they aren't. What are the odds
-    ## that the next person says a cat is big? (7+1)/(7+1+3+1)
+  /**
+   * estimateObjectLikelihoods
+   *
+   * Create temporary table `evidence` storing object IDs and likelihood.
+   * Likelihood that the user believes OBJECT matches given yes/no/skip predicates.
+   *
+   * If we have no past knowledge regarding QUESTION, then we estimate likelihood
+   * that user agrees QUESTION is YES for an object is 1/3. (Because there are
+   * three options, yes/no/skip).
+   *
+   * To simplify this default value, we instead calculate the log (base 2) of
+   * three times the likelihood. Now the default is log(3*1/3)=0. Much nicer.
+   */
+  function estimateObjectLikelihoods()
+  {
+    $start = microtime(true);
+    if (!empty($this->_didEstimateObjectLikelihoods)) return;
+    $this->_didEstimateObjectLikelihoods = 1;
 
-    ##
-    ## Create EVIDENCE temporary table
-    ## This maps each object to a log posterior probability*3 using the users'
-    ## PASTQUESTIONS as evidence, when the ANSWERS table maps those questions to an object
-    ##
-    $sources = array();
-    if (count($this->yesQ))
-      $sources[] = "SELECT objectid, log(2, 3*(yes+1)/(yes+no+skip+3)) as lp3 FROM answers WHERE questionid IN (".join($this->yesQ,",").")";
-    if (count($this->noQ))
-      $sources[] = "SELECT objectid, log(2, 3*(no+1)/(yes+no+skip+3)) as lp3 FROM answers WHERE questionid IN (".join($this->noQ,",").")";
-    if (count($this->skipQ))
-      $sources[] = "SELECT objectid, log(2, 3*(skip+1)/(yes+no+skip+3)) as lp3 FROM answers WHERE questionid IN (".join($this->skipQ,",").")";
-    if (!count($sources))
-      $sources[] = 'SELECT NULL as objectid, 0 as lp3';
+    $placeholdersY = join(array_fill(0, count($this->yesses), '?'), ',');
+    $placeholdersN = join(array_fill(0, count($this->noes), '?'), ',');
+    $placeholdersS = join(array_fill(0, count($this->skips), '?'), ',');
+    $placeholdersG = join(array_fill(0, count($this->guesses), '?'), ',');
+    $sql = "
+    SELECT objects.objectid,
+           objects.calc_logl + COALESCE(SUM(evidence.logl), 0) logl
+--           1 + COALESCE(SUM(evidence.logl), 0) logl
+--           COALESCE(SUM(evidence.logl), 0) logl
+      FROM objects
+           LEFT JOIN
+           (SELECT objectid, calc_y3ll logl FROM answers WHERE questionid IN ($placeholdersY)
+             UNION ALL
+            SELECT objectid, calc_n3ll logl FROM answers WHERE questionid IN ($placeholdersN)
+             UNION ALL
+            SELECT objectid, calc_s3ll logl FROM answers WHERE questionid IN ($placeholdersS)) evidence
+           ON evidence.objectid = objects.objectid
+     WHERE visible = 1
+       AND objects.objectid NOT IN ($placeholdersG)
+     GROUP BY objects.objectid";
+    $binds = array_merge($this->yesses, $this->noes, $this->skips, $this->guesses);
+    $statement = $this->database->prepare($sql);
+    $statement->execute($binds);
 
-    $sql = "CREATE TEMPORARY TABLE evidence (id SMALLINT, lp3 FLOAT, PRIMARY KEY(id))
-            SELECT objectid as id, SUM(lp3) AS lp3
-              FROM (".join($sources, " UNION ALL ").") xx GROUP BY objectid";
-    $dh = $this->query($sql);
-
-    ##
-    ## Create STATE temporary table
-    ## This MAPS all objects to a posterior probability and caches some expressions
-    ##
-    $sql = "CREATE TEMPORARY TABLE
-                   state (id SMALLINT, freq FLOAT, flogf FLOAT, logf FLOAT, PRIMARY KEY(id)) ENGINE=MEMORY
-            SELECT id,
-                   hits * COALESCE(POW(2,lp3), 1) AS freq,
-                   hits * COALESCE(POW(2,lp3), 1) * (log(2, hits) + COALESCE(lp3, 0)) AS flogf,
-                   log(2, hits) + COALESCE(lp3, 0) AS logf
-            FROM objects LEFT JOIN evidence USING(id) WHERE hidden=0";
-    $this->query($sql);
-
-    if (count($this->guesses)) {
-      $sql = "DELETE FROM state WHERE id IN (".join($this->guesses,',').")";
-      $this->query($sql);
+    // I'd rather do this transformation in SQL but SQLite math functions are limited
+    $this->database->beginTransaction();
+    $this->database->exec('CREATE TEMPORARY TABLE object_likelihood(objectid PRIMARY KEY, l REAL, lll REAL)');
+    $insertStatement = $this->database->prepare('INSERT INTO object_likelihood VALUES(?,?,?)');
+    $this->objectEntropy = 0;
+    $this->objectSumLikelihood = 0;
+    $this->objectSumLLL = 0;
+    while($row = $statement->fetch(\PDO::FETCH_NUM)) {
+      list($objectId, $logL) = $row;
+      $l = pow(2, $logL);
+      $values = [$objectId, $l, $l*$logL];
+      $insertStatement->execute($values);
+      $this->objectSumLikelihood += $l;
+      $this->objectSumLLL += $l*$logL;
     }
-
-## TODO FINE TUNE THIS FACTOR
-    ## DO APPROXIMATION
-    $factor = 40;
-    $dh = $this->query('SELECT MAX(freq) FROM state');
-    list($this->maxFreq) = mysql_fetch_array($dh);
-    $this->query("DELETE FROM state WHERE freq < {$this->maxFreq} / $factor");
+    $this->objectEntropy = log($this->objectSumLikelihood, 2) - $this->objectSumLLL / $this->objectSumLikelihood;
+    $this->database->commit();
+    $this->debug[__FUNCTION__] = number_format(microtime(true) - $start, 3) . ' SECONDS';
   }
 
-  function query($sql, $buffered=true)
+  // Returns [(object)[objectId=>..., name=>..., subname=>..., likelihood=>...]]
+  // Sorted in order of best guess first
+  function getTopHunches()
   {
-    $bt = debug_backtrace();
-    if (isset($bt[1]))
-      $func = $bt[1]['function'];
-    else
-      $func = "TOP LEVEL";
-
-    $startTime = microtime(1);
-    if ($buffered)
-      $result = mysql_query($sql, $this->database);
-    else
-      $result = mysql_unbuffered_query($sql, $this->database);
-
-    if(!$result)
-      die("DATABASE ERROR<br>in $func<br>".mysql_error()."<br>$sql");
-
-    $this->debug[] = sprintf("<em>$func</em> query took %0.3fs:<br>",microtime(1)-$startTime).$sql;
-    return $result;
-  }
-
-  function getNumQuestions()
-  {
-    return count($this->pastQuestions);
-  }
-
-  function getPastQuestions()
-  {
-    return $this->pastQuestions;
-  }
-
-  // ENTROPY crash course:
-  // You have a apples, b bananas, and c carrots. Each of those is a frequency.
-  // sum f = a+b+c; sum f log f = a log a + b log b + c log c
-  // Entropy of your produce is log sumf - sumflogf / sumf
-
-  // Returns the entropy of the current state:
-  //   array: entropy in bits, sumf, sumflogf
-  function getEntropy()
-  {
-    if (isset($this->_entropy)) return $this->_entropy;
-    $dh = $this->query('SELECT log(2,SUM(freq))-SUM(flogf)/SUM(freq), SUM(freq), SUM(flogf) FROM state');
-    return $this->_entropy = mysql_fetch_array($dh);
-  }
-
-  // Result contains arrays of (probability (of 1), objectid, object name, object subtext)
-  function getTopHunches($count = 9)
-  {
-    list($entropy, $stateSumF, $stateSumFLogF) = $this->getEntropy();
-
-    $this->hunches = array();
-    $sql = "SELECT id, freq, name, sub FROM state NATURAL JOIN objects ORDER BY freq DESC LIMIT $count";
-    $dh = $this->query($sql);
-
-    while (list($id, $freq, $name, $sub) = mysql_fetch_array($dh))
-    {
-      $this->hunches[] = array($freq/$stateSumF, $id, $name, $sub);
-    }
-
-    assert(count($this->hunches));
+    if (!empty($this->hunches)) return $this->hunches;
+    $this->estimateObjectLikelihoods();
+    $sql = '
+      SELECT objects.objectid objectId, objects.name, objects.subname, l likelihood
+        FROM object_likelihood
+        JOIN objects ON objects.objectid = object_likelihood.objectid
+       ORDER BY l DESC
+       LIMIT 10
+    ';
+    $statement = $this->database->query($sql);
+    $this->hunches = $statement->fetchAll(\PDO::FETCH_OBJ);
     return $this->hunches;
   }
 
-  // Find the question to minimize state entropy
-  // returns array($score, $id, $name, $sub);
-  function getTopQuestions($count = 1)
+  /**
+   * getBestQuestions
+   *
+   * Each question we could ask has a YES/NO/SKIP answer. We can estimate
+   * likelihood of each response and the entropy of system state given responses.
+   * So we pick the question that are expected to reduce entropy the most.
+   *
+   * @return [[score, questionid, name, subname, yesLikelihood, noLikelihood]]
+   */
+  function getBestQuestions()
   {
-    list($entropy, $stateSumF, $stateSumFLogF) = $this->getEntropy();
-    $questions = array(); // contains arrays like (score, questionid, name, subtext)
-
-    $questionsToSkip = array_merge($this->yesQ, $this->noQ, $this->skipQ, array(0));
-    $sql = "SELECT questionid, name, sub,
-              $stateSumF + SUM(3*(yes+1)/(yes+no+skip+3) * state.freq - state.freq) as YesSumF,
-              $stateSumFLogF + SUM(3*(yes+1)/(yes+no+skip+3) * state.freq * (log(2,3*(yes+1)/(yes+no+skip+3)) + state.logf) - state.flogf) as YesSumFlogF,
-              $stateSumF + SUM(3*(no+1)/(yes+no+skip+3) * state.freq - state.freq) as NoSumF,
-              $stateSumFLogF + SUM(3*(no+1)/(yes+no+skip+3) * state.freq * (log(2,3*(no+1)/(yes+no+skip+3)) + state.logf) - state.flogf) as NoSumFlogF,
-              $stateSumF + SUM(3*(skip+1)/(yes+no+skip+3) * state.freq - state.freq) as SkipSumF,
-              $stateSumFLogF + SUM(3*(skip+1)/(yes+no+skip+3) * state.freq * (log(2,3*(skip+1)/(yes+no+skip+3)) + state.logf) - state.flogf) as SkimSumFlogF
-            FROM answers, state, questions
-            WHERE answers.questionid NOT IN (".join($questionsToSkip, ',').")
-            AND answers.questionid = questions.id
-            AND answers.objectid = state.id
-            GROUP BY answers.questionid";
-    $dh = $this->query($sql);
-
-    while (list($id, $name, $sub, $YS, $YSLS, $NS, $NSLS, $SS, $SSLS) = mysql_fetch_array($dh))
-    {
-      #TODO push ALL this math into the database? to make it lame and unreadable?
-      $YesProb = $YS / ($YS+$NS+$SS);
-      $NoProb = $NS / ($YS+$NS+$SS);
-      $SkipProb = $SS / ($YS+$NS+$SS);
-
-      $YesEntropy = log($YS,2) - $YSLS / $YS;
-      $NoEntropy = log($NS,2) - $NSLS / $NS;
-      $SkipEntropy = log($SS,2) - $SSLS / $SS;
-
-      $questionScore = $entropy - ($YesProb*$YesEntropy + $NoProb*$NoEntropy + $SkipProb*$SkipEntropy);
-      $questions[] = array($questionScore, $id, $name, $sub, $YesProb, $NoProb);
+    if (!empty($this->_bestQuestions)) return $this->_bestQuestions;
+    $start = microtime(true);
+    $this->estimateObjectLikelihoods();
+    $binds = array_merge($this->yesses, $this->noes, $this->skips);
+    $placeholdersSkipQuestions = join(array_fill(0, count($binds), '?'), ',');
+    $sql = "SELECT questions.questionid, questions.name, questions.subname,
+                   calc_y3lmin1 * SUM(state.l) as yes_delta_l,
+                   SUM(calc_y3lmin1 * state.lll + state.l * calc_y3lll) as yes_delta_lll,
+                   calc_n3lmin1 * SUM(state.l) as no_delta_l,
+                   SUM(calc_n3lmin1 * state.lll + state.l * calc_n3lll) as no_delta_lll,
+                   calc_s3lmin1 * SUM(state.l) as skip_delta_l,
+                   SUM(calc_s3lmin1 * state.lll + state.l * calc_s3lll) as skip_delta_lll,
+COUNT(*), SUM(state.l), SUM(state.lll), SUM(calc_y3lmin1 + calc_n3lmin1 + calc_s3lmin1)
+              FROM questions
+              JOIN answers ON answers.questionid = questions.questionid
+              JOIN object_likelihood state ON answers.objectid = state.objectid
+             WHERE questions.questionid NOT IN ($placeholdersSkipQuestions)
+             GROUP BY questions.questionid";
+    $statement = $this->database->prepare($sql);
+    $statement->execute($binds);
+    $questions = [];
+    while ($row = $statement->fetch(\PDO::FETCH_NUM)) {
+#var_dump($row);
+#die();
+      list($questionId, $name, $subname, $yesDeltaL, $yesDeltaLLL, $noDeltaL, $noDeltaLLL, $skipDeltaL, $skipDeltaLLL) = $row;
+      $yesSumL = $yesDeltaL + $this->objectSumLikelihood;
+      $noSumL = $noDeltaL + $this->objectSumLikelihood;
+      $skipSumL = $skipDeltaL + $this->objectSumLikelihood;
+      $yesSumLLL = $yesDeltaLLL + $this->objectSumLLL;
+      $noSumLLL = $noDeltaLLL + $this->objectSumLLL;
+      $skipSumLLL = $skipDeltaLLL + $this->objectSumLLL;
+      $denom = $yesSumL + $noSumL + $skipSumL;
+      $yesLikelihood = $yesSumL / $denom;
+      $noLikelihood = $noSumL / $denom;
+      $skipLikelihood = $skipSumL / $denom;
+      $yesEntropy = log($yesSumL, 2) - $yesSumLLL / $yesSumL;
+      $noEntropy = log($noSumL, 2) - $noSumLLL / $noSumL;
+      $skipEntropy = log($skipSumL, 2) - $skipSumLLL / $skipSumL;
+      $score = $this->objectEntropy - ($yesLikelihood*$yesEntropy + $noLikelihood*$noEntropy + $skipLikelihood*$skipEntropy);
+      $questions[] = [$score, $questionId, $name, $subname, $yesLikelihood, $noLikelihood];
     }
-
-    rsort ($questions);
-    return array_slice($questions, 0, $count);
+    rsort($questions);
+    $this->debug[__FUNCTION__] = number_format(microtime(true) - $start, 3) . ' SECONDS';
+    $this->_bestQuestions = array_slice($questions, 0, 10);
+    return $this->_bestQuestions;
   }
 
-## TODO ADD EARLY GUESS (before Q19) IF THE SCORE FOR GET GUESS QUESTION exceeds the Normal Question
   // Returns array(score of question "i am thinking of OBJ", top object name, top object subtext)
+  // [score, questionid, name, subname, yesLikelihood, noLikelihood]
   function getGuessQuestion()
   {
     $hunches = $this->getTopHunches();
-    list($p, $id, $name, $sub) = $hunches[0];
+    $topHunch = $hunches[0];
 
-    list($entropy, $stateSumF, $stateSumFLogF) = $this->getEntropy();
+    $entropyIfGuessCorrect = 0;
+    $sumLikelihoodIfGuessWrong = $this->objectSumLikelihood - $topHunch->likelihood;
+    $sumLLLIfGuessWrong = $this->objectSumLLL - $topHunch->likelihood * log($topHunch->likelihood, 2);
+    $entropyIfGuessWrong = log($sumLikelihoodIfGuessWrong, 2) - $sumLLLIfGuessWrong / $sumLikelihoodIfGuessWrong;
+    $expectedEntropy = $entropyIfGuessCorrect * ($topHunch->likelihood/$this->objectSumLikelihood) +
+                       $entropyIfGuessWrong * (1 - $topHunch->likelihood/$this->objectSumLikelihood);
+    $score = $this->objectEntropy - $expectedEntropy;
 
-    $maxFLogF = $this->maxFreq * log($this->maxFreq, 2);
-    if (abs($this->maxFreq - $stateSumF) < 1)
-      $score = $entropy;
-    else
-    {
-      $entropyWithoutTopHunch = log($stateSumF-$this->maxFreq, 2) - ($stateSumFLogF - $maxFLogF) / ($stateSumF-$this->maxFreq);
-      $entropyOfGuessTopHunch = $this->maxFreq / $stateSumF * 0.00 + (1-$this->maxFreq / $stateSumF) * $entropyWithoutTopHunch;
-      $score = $entropy - $entropyOfGuessTopHunch;
-    }
-    return array($score, $id, "I am guessing that it is $name", $sub);
+    //TODO remove this fudge factor when we have some reliable data in ANSWERS table
+    $score = $score / 3;
+
+    return [$score, $topHunch->objectId, 'I am guessing that it is ' . $topHunch->name, $topHunch->subname];
   }
 
-  // gets an array: question, question subtext, array of arrays: description, token
+  // [name, subname, [response, token]]
   function getNextQuestion()
   {
-    $answers = array();
-
-    $qNum = count($this->pastQuestions) + 1;
-
-    if ( ($qNum == 19) || ($qNum > 21 && $qNum % 5 == 0) )
-    {
-      list($gscore, $gid, $gname, $gsub) = $this->getGuessQuestion();
-      $answers[] = array('Right',$this->state.'w'.$gid);
-      $answers[] = array('Wrong',$this->state.'g'.$gid);
-      return array($gname, $gsub, $answers);
+    $answers = [];
+    $questionNumber = count($this->askedQuestions) + 1;
+    $doGuessQuestion = false;
+    if (($questionNumber == 19) || ($questionNumber > 21 && $questionNumber % 4 == 0)) {
+      $doGuessQuestion = true;
     }
 
-    $questions = $this->getTopQuestions(5);
+    $questions = $this->getBestQuestions();
+    $guessQuestion = $this->getGuessQuestion();
+    if ($guessQuestion[0] > $questions[0][0]) { // rank by ->score
+      $doGuessQuestion = true;
+    }
+
+    if ($doGuessQuestion) {
+      list($gscore, $gid, $gname, $gsub) = $this->getGuessQuestion();
+      $answers[] = ['Right', $this->state.'w'.$gid];
+      $answers[] = ['Wrong', $this->state.'g'.$gid];
+      return [$gname, $gsub, $answers];
+    }
+
+    if (!count($questions)) return ['no questions', '', []];
     $choice = 0;
-    if ($questions[4][0] > $questions[0][0] * 0.90)
-    {
+    if ($questions[4][0] > $questions[0][0] * 0.90) {
       # Have some fun here, the top questions are pretty close, pick one at random
       $choice = rand(0,4);
     }
 
     list($nscore, $nid, $nname, $nsub) = $questions[$choice];
-
-    $answers[] = array('Yes',$this->state.'y'.$nid);
-    $answers[] = array('No',$this->state.'n'.$nid);
-    $answers[] = array('Skip this question',$this->state.'s'.$nid);
-
-    return array($nname, $nsub, $answers);
+    $answers[] = ['Yes', $this->state.'y'.$nid];
+    $answers[] = ['No', $this->state.'n'.$nid];
+    $answers[] = ['Skip this question', $this->state.'s'.$nid];
+    return [$nname, $nsub, $answers];
   }
 
-  function addObject($name)
+  function getObject($objectId)
   {
-    $name = preg_replace('/[^a-z0-9_, ]/','',$name);
-    $dh = $this->query("SELECT id FROM objects WHERE name = '$name'");
-    if (list($id) = mysql_fetch_array($dh))
-      return $id;
+    $statement = $this->database->prepare('SELECT name, subname FROM objects WHERE objectid = ?');
+    $statement->execute([$objectId]);
+    return $statement->fetch(\PDO::FETCH_NUM);
+  }
 
-    $this->query("INSERT INTO objects (name, sub, hits, loghits, hidden) VALUES ('$name', '', 0, 0, 1)");
-    return mysql_insert_id();
+  function getObjectByName($name)
+  {
+    $name = preg_replace('/[^a-z0-9_, ]/','', $name);
+    $sql = 'SELECT objectid FROM objects WHERE name = ?';
+    $statement = $this->database->prepare($sql);
+    $statement->execute([$name]);
+    if ($objectId = $statement->fetchColumn()) {
+      return $objectId;
+    }
+
+    $sql = 'INSERT INTO objects (name, hits, calc_logl) VALUES (?,?,?)';
+    $statement = $this->database->prepare($sql);
+    $statement->execute([$name, 1, log(1+1, 2)]);
+    return $this->database->lastInsertId();
   }
 
   // commit answers to the database using the current state
-  //
-  function teach($objectid)
+  function teach($objectId)
   {
-    $objectid = intval($objectid);
+    $sql1 = 'SELECT hits FROM objects WHERE objectid = ?';
+    $statement1 = $this->database->prepare($sql1);
+    $statement1->execute([$objectId]);
+    $hits = $statement1->fetchColumn();
 
-    $this->query("UPDATE objects SET hits=hits+1, loghits=log2(hits+1)*65536 WHERE id=$objectid");
-    $this->query("INSERT INTO logs (host,date,objectid,answers) VALUES (".sprintf("%u", ip2long($_SERVER['REMOTE_ADDR'])).",NOW(),$objectid,\"".mysql_escape_string($_REQUEST['q']).'")');
+    $sql2 = '
+      UPDATE objects
+         SET hits = hits + 1,
+             calc_logl = ?
+       WHERE objectid = ?
+    ';
+    $statement2 = $this->database->prepare($sql2);
+    $statement2->execute([log($hits + 1, 2), $objectId]);
 
-    foreach ($this->pastQuestions as $question)
-    {
-      list($name, $sub, $ans, $qid) = $question;
-      if ($ans == 'wrong') continue;
+    $sql3 = 'INSERT OR IGNORE INTO answers (objectid, questionid) VALUES (?,?)';
+    $statement3 = $this->database->prepare($sql3);
+    $sql4y = 'UPDATE answers SET yes = yes+1 WHERE objectid = ? AND questionid = ?';
+    $statement4y = $this->database->prepare($sql4y);
+    $sql4n = 'UPDATE answers SET no = no+1 WHERE objectid = ? AND questionid = ?';
+    $statement4n = $this->database->prepare($sql4n);
+    $sql4s = 'UPDATE answers SET skip = skip+1 WHERE objectid = ? AND questionid = ?';
+    $statement4s = $this->database->prepare($sql4s);
 
-      $this->query("INSERT INTO answers (objectid,questionid,$ans) VALUES (".$objectid.",$qid,1) ON DUPLICATE KEY UPDATE $ans=$ans+1")
-        or die(__LINE__.mysql_error());
-      $this->query("UPDATE answers SET pyes2=((yes+1)/(yes+no+skip+2))*2*65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET pyes2min1=((yes+1)/(yes+no+skip+2))*2*65536-65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET logpyes2=log2(((yes+1)/(yes+no+skip+2))*2)*65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET pno2=((no+1)/(yes+no+skip+2))*2*65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET pno2min1=((no+1)/(yes+no+skip+2))*2*65536-65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET logpno2=log2(((no+1)/(yes+no+skip+2))*2)*65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET pskip2=((skip+1)/(yes+no+skip+2))*2*65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET pskip2min1=((skip+1)/(yes+no+skip+2))*2*65536-65536 WHERE questionid=$qid AND objectid=".$objectid);
-      $this->query("UPDATE answers SET logpskip2=log2(((skip+1)/(yes+no+skip+2))*2)*65536 WHERE questionid=$qid AND objectid=".$objectid);
+    $sql5 = 'SELECT yes, no, skip FROM answers WHERE objectid = ? AND questionid = ?';
+    $statement5 = $this->database->prepare($sql5);
+    $sql6 = 'UPDATE answers SET calc_y3lmin1=?, calc_n3lmin1=?, calc_s3lmin1=?, calc_y3lll=?, calc_n3lll=?, calc_s3lll=?, calc_y3ll=?, calc_n3ll=?, calc_s3ll=? WHERE objectid = ? AND questionid = ?';
+    $statement6 = $this->database->prepare($sql6);
+
+    foreach ($this->askedQuestions as $question) {
+      list($name, $subname, $answer, $questionId) = $question;
+      $statement4 = null;
+      switch ($answer) {
+        case 'yes':
+          $statement4 = $statement4y;
+          break;
+        case 'no':
+          $statement4 = $statement4n;
+          break;
+        case 'skip':
+          $statement4 = $statement4s;
+          break;
+      }
+      if (!empty($statement4)) {
+        $statement4->execute([$objectId, $questionId]);
+        $statement5->execute([$objectId, $questionId]);
+        list($yes, $no, $skip) = $statement5->fetch(\PDO::FETCH_NUM);
+        $binds = [];
+        $binds[] = 3*($yes+1)/($yes+$no+$skip+3)-1;  // calc_y3min1
+        $binds[] = 3*($no+1)/($yes+$no+$skip+3)-1;   // calc_n3min1
+        $binds[] = 3*($skip+1)/($yes+$no+$skip+3)-1; // calc_s3min1
+        $binds[] = $binds[0] * log($binds[0], 2);    // calc_y3lll
+        $binds[] = $binds[1] * log($binds[1], 2);    // calc_n3lll
+        $binds[] = $binds[2] * log($binds[2], 2);    // calc_s3lll
+        $binds[] = log($binds[0], 2);                // calc_y3ll
+        $binds[] = log($binds[1], 2);                // calc_n3ll
+        $binds[] = log($binds[2], 2);                // calc_s3ll
+        $statement6->execute($binds);
+      }
     }
   }
 }

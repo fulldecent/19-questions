@@ -1,10 +1,9 @@
 <?php
+require 'local/config.php';
 require 'sources/autoload.php';
-require 'sources/config.php';
 
-$query = isset($_GET['q']) ? $_GET['q']: ''; #TODO urlencode or anything here?
-$NQ = new \NineteenQ\Engine($query);
-$numQuestions = $NQ->getNumQuestions();
+$NQ = new \NineteenQ\Engine(empty($_GET['q']) ? '' : $_GET['q']);
+$numQuestions = count($NQ->askedQuestions);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -14,54 +13,50 @@ $numQuestions = $NQ->getNumQuestions();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>19 Questions</title>
-    <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
-    <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
-    <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
-      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
-    <![endif]-->
-    <script>var q="<?= htmlentities($query) ?>"</script>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.min.css" integrity="sha384-rwoIResjU2yc3z8GV/NPeZWAv56rSmLldC3R/AZzGRnGxQQKnKkoFVhFQhNUwEyJ" crossorigin="anonymous">
+    <link rel="stylesheet" href="assets/common.css">
+    <script>var q="<?= $NQ->state ?>"</script>
     <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
     <script src="//netdna.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
     <link href="//cdnjs.cloudflare.com/ajax/libs/x-editable/1.5.0/inputs-ext/typeaheadjs/lib/typeahead.js-bootstrap.css" rel="stylesheet" media="screen">
     <script src="//cdnjs.cloudflare.com/ajax/libs/typeahead.js/0.10.2/typeahead.bundle.min.js"></script>
     <style>
       body {background: #F1EBEB; margin-top: 2em}
-      .well {background:-webkit-linear-gradient(#5CCEEE 0%, #93e1f6 100%); border: none}
     </style>
   </head>
   <body>
     <div class="container">
-
-      <div class="well well-lg">
-          <h2>19 Questions <small style="color:#333">you think of something, we guess what it is</small></h2>
+      <div class="jumbotron">
+          <h2>19 Questions <small style="color:#333">you think of something, we guess it</small></h2>
         <hr>
+
+<?php if (isset($_GET['wrapup']) || $numQuestions >= 40): ?>
+        <div class="alert alert-success"><strong>You win this round!</strong></div>
+        <h3>Were you thinking of one of these:</h3>
 <?php
-if (isset($_GET['wrapup']) || $numQuestions >= 40)
-{
-	echo "<div class=\"alert alert-info\"><strong>You've won this round!</strong></div>\n";
-  echo "<h3>Were you thinking of one of these:</h3>";
-  echo "<ul style=\"list-style:square\">\n";
-  foreach ($NQ->getTopHunches(9) as $hunch)
-  {
-    list($prob, $id, $name, $sub) = $hunch;
-    if (strlen($sub)) $name .= " ($sub)";
-    echo "<li><a href=\"save.php&#63;obj={$id}&amp;q=".htmlentities($query)."\">{$name}</a></li>\n";
-  }
-  echo "</ul>\n";
-  echo "<h3>If not, please type the thing here:</h3>";
+foreach ($NQ->getTopHunches() as $hunch) {
+  $nameHtml = htmlspecialchars($hunch->name);
+  if (!empty($hunch->subname)) $nameHtml .= '<small>(' . htmlspecialchars($hunch->subname) . ')</small>';
+  echo "<a class=\"btn btn-secondary\" href=\"save.php&#63;obj={$hunch->objectId}&amp;q=".$NQ->state."\">{$nameHtml}</a>\n";
+}
 ?>
-<p/>
-<form class="form form-inline" action="save.php" method="get">
+
+<hr>
+<h3>If not, please type the thing here:</h3>
+
+
+
+<form class="form form-inline mx-auto" action="save.php" method="get">
+<input name="q" type="hidden" value="<?= $NQ->state ?>">
 <input name="objectname" id="theobjectname" class="form-control">
-<input name="q" type="hidden" value="<?= htmlentities($query) ?>">
 <input type=submit value="Submit" class="btn btn-default">
+</form>
 
 <script>
 var bestPictures = new Bloodhound({
   datumTokenizer: Bloodhound.tokenizers.obj.whitespace('name'),
   queryTokenizer: Bloodhound.tokenizers.whitespace,
-  remote: 'jscomplete.php?q=%QUERY'
+  remote: 'api/v1/objects.php?q=%QUERY'
 });
 bestPictures.initialize();
 $('#theobjectname').typeahead(null, {
@@ -73,17 +68,16 @@ $('#theobjectname').typeahead(null, {
   }
 });
 </script>
+</div></body></html>
+<?php exit; ?>
+<?php endif; ?>
 
-</form>
 
-  </div></body></html>
 <?php
-    exit;
-  }
 
   if ($numQuestions >= 19)
   {
-  	echo "<div class=\"alert alert-info\"><strong>You've won this round!</strong> You can continue answering a few more questions or <a href=\"".basename($_SERVER['PHP_SELF'])."&#63;wrapup=yes&amp;q=".$query."\" class=\"btn btn-info\">tell me what you were thinking of</a> so I can learn.</div>\n";
+  	echo "<div class=\"alert alert-info\"><strong>You've won this round!</strong> You can continue answering a few more questions or <a href=\"".basename($_SERVER['PHP_SELF'])."&#63;wrapup=yes&amp;q=".$NQ->state."\" class=\"btn btn-info\">tell me what you were thinking of</a> so I can learn.</div>\n";
   }
 
   echo "<p><b>#". ($numQuestions+1) ."</b> ";
@@ -102,8 +96,7 @@ $('#theobjectname').typeahead(null, {
   }
   echo "</p><hr />";
 
-  $pastQuestions = $NQ->getPastQuestions();
-  foreach (array_reverse($pastQuestions) as $pastQuestion)
+  foreach (array_reverse($NQ->askedQuestions) as $pastQuestion)
   {
     list($name, $subtext, $answer) = $pastQuestion;
     if (strlen($subtext)) $name .= " ($subtext)";
@@ -116,54 +109,62 @@ $('#theobjectname').typeahead(null, {
   if (isset($_GET['debug'])) {
 ?>
       <div class="row">
-        <div class="col-md-4">
+        <div class="col-md">
           <h2>Hunches</h2>
           <table class="table table-condensed">
 <?php
-    $i=0;
-    foreach ($NQ->getTopHunches(20) as $hunch)
+    foreach ($NQ->getTopHunches() as $hunch)
     {
-      list($prob, $id, $name, $sub) = $hunch;
-      if (strlen($sub)) $name .= " <small><em>($sub)</em></small>";
-      $prob = sprintf("%0.3f%%",$prob*100);
-      echo "<tr><td>".++$i.".<td>$name<td>$prob\n";
+      $htmlName = htmlspecialchars($hunch->name);
+      if (!empty($hunch->subname)) {
+        $htmlName .= ' <small><em>(' . htmlspecialchars($hunch->subname) . ')</em></small>';
+      }
+      echo '<tr><td>' . $htmlName . '<td>' . number_format($hunch->likelihood*100 / $NQ->objectSumLikelihood, 3) . '%';
+      echo '<tr><td colspan=2>';
+      echo '<div class="progress">';
+      echo '<div class="progress-bar bg-info" title="' . number_format($hunch->likelihood*100 / $NQ->objectSumLikelihood, 3) . '% likelihood" role="progressbar" style="width: ' . number_format($hunch->likelihood*100 / $NQ->objectSumLikelihood, 3) . '%"></div>';
+      echo '</div>';
     }
-    list($entropy, $sumF, $sumFLogF) = $NQ->getEntropy();
-    echo "<tr><td><td><em>Total entropy: ".sprintf("%.2f",$entropy)." bits\n";
+    echo '<tr><td><em>Total entropy:<td>' . number_format($NQ->objectEntropy, 2) . ' bits';
 ?>
           </table>
         </div>
-        <div class="col-md-4">
+        <div class="col-md">
           <h2>Top questions</h2>
           <table class="table table-condensed">
 <?php
-    $i=0;
-    foreach ($NQ->getTopQuestions(10) as $question)
-    {
+    foreach ($NQ->getBestQuestions(10) as $question) {
       list($score, $id, $name, $sub, $yes, $no) = $question;
       if (strlen($sub)) $name .= " <small><em>($sub)</em></small>";
-      echo "<tr><td>".++$i.".<td>$name<td style=\"white-space: nowrap\">YES ".sprintf("%.1f",$yes*100)."%<br>NO ".sprintf("%.1f",$no*100)."% <td>".sprintf("%.3f",$score)." bits";
+      echo "<tr><td>$name<td>" . number_format($score, 3) . " bits";
+      echo "<tr><td colspan=2>";
+      echo '<div class="progress">';
+      echo '<div class="progress-bar bg-success" title="' . number_format($yes*100, 2) . '% yes" role="progressbar" style="width: ' . number_format($yes*100, 2) . '%"></div>';
+      echo '<div class="progress-bar bg-info" title="' . number_format((1-$yes-$no)*100, 2) . '% skip" role="progressbar" style="width: ' . number_format((1-$yes-$no)*100, 2) . '%"></div>';
+      echo '<div class="progress-bar bg-danger" title="' . number_format($no*100, 2) . '% no" role="progressbar" style="width: ' . number_format($no*100, 2) . '%"></div>';
+      echo '</div>';
     }
 ?>
           </table>
         </div>
-        <div class="col-md-4">
+<!--
+        <div class="col-md">
           <h2>Profiling</h2>
           <table class="table table-condensed">
 <?php
-    foreach ($NQ->debug as $line)
+    foreach ($NQ->debug as $title=>$line)
     {
-      echo "<tr><td>";
-      print_r($line);
+      echo '<tr><td><strong>' . htmlspecialchars($title) . '</strong> ';
+      echo htmlspecialchars(json_encode($line));
     }
 ?>
           </table>
-          <p>
-
+        </div>
+-->
 <?php
   } else {
 ?>
-        <div><a class="btn btn-info" href="?debug&amp;q=<?= isset($_GET['q'])?htmlentities($_GET['q']):"" ?>">Turn on debug mode</a></div>
+        <div><a class="btn btn-info" href="?debug&amp;q=<?= $NQ->state ?>">Show Brain Dump</a></div>
 <?php
   }
 ?>

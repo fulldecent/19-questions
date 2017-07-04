@@ -1,10 +1,6 @@
 body {background: #F1EBEB; margin-top: 2em}
 .jumbotron {background:-webkit-linear-gradient(#5CCEEE 0%, #93e1f6 100%); border: none}
 
-
-
-
-
 /* Space out content a bit */
 body {
   padding-top: 1.5rem;
@@ -42,6 +38,11 @@ body {
 @media (min-width: 48em) {
   .container {
     max-width: 46rem;
+  }
+}
+@media (min-width: 68em) {
+  .container {
+    max-width: 66rem;
   }
 }
 .container-narrow > hr {
