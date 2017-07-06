@@ -9,17 +9,16 @@ Access the demo site at: https://phor.net/apps/19q/
 Install
 -------
 
-Create a SQL database using SCHEMA.sql and assign a user with permissions to
-that database.
+Copy these files to a webserver with PHP 5.6+ and run. The database uses SQLite
+so you are already set up to go.
 
-Copy sources/config.example.php to sources/config.php and provide details to
-access this database.
+For production use: consider creating a MySQL database with the SCHEMA.sql script
+and update the database connection string in `local/config.php`.
 
-Then manually add a some data to the database to get started, or run
-harvestfrom20q to interrogate another popular server.
+Now you can play by accessing the website from a browser.
 
-Copy the files to your server and you can now play by accessing the website from
-a browser.
+Also run harvestfrom20q to interrogate another popular server.
+
 
 What it Does
 ------------
