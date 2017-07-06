@@ -42,7 +42,7 @@ questions.
 For more discussion of the algorithm, see [TECHNICAL.md](TECHNICAL.md).
 
 
-# About the maintainer
+## About the maintainer
 
 **William Entriken** is interested to learn more about machine learning and
 helps SEPTA, Philadelphia's local municipal transport system, improve their
