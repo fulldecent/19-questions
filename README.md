@@ -40,3 +40,11 @@ The computer wins if it correctly guesses the player’s object within 19
 questions.
 
 For more discussion of the algorithm, see [TECHNICAL.md](TECHNICAL.md).
+
+
+## Contributing to 19 Questions
+
+Contributions to 19 Questions are welcome and encouraged!
+
+If you can improve the statistical calculations, presentation of information or
+technical documentation, this would be most appreciated.
