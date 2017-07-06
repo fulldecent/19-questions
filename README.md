@@ -11,6 +11,7 @@ Access the demo site at: https://phor.net/apps/19q/
 Although inspired by neural networking, 19 Questions is based entirely on the
 Bayesian inference technique.
 
+![screen shot 2017-07-06 at 11 56 39 am](https://user-images.githubusercontent.com/382183/27921147-d5e5e11e-6244-11e7-8e2b-b2570aca8eac.png)
 
 ## Getting started
 
