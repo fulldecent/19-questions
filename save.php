@@ -34,13 +34,12 @@ if (empty($objectName)) die('Object database error');
   </head>
   <body>
     <div class="container">
+      <h2>19 Questions <small class="text-secondary">you think of something, we guess it</small></h2>
       <div class="jumbotron">
-        <h2>19 Questions <small style="color:#333">you think of something, we guess it</small></h2>
-        <hr>
 <?php
 if (isset ($_POST['action']) && $_POST['action'] == 'save') {
   $NQ->teach($objectID);
-  echo "<p>Thanks for playing. <a href=\"play.php\" class=\"btn btn-lg btn-primary\">Play again</a> <a href=\"index.php\" class=\"btn btn-lg btn-default\">Go to the 19Q homepage</a>";
+  echo "<p>Thanks for playing. <a href=\"play.php\" class=\"btn btn-lg btn-primary\">Play again</a> <a href=\"index.php\" class=\"btn btn-lg btn-secondary\">Go to the 19Q homepage</a>";
   echo "<hr>";
   echo '<p>Please tell everyone you know about this project. That is how I learn.';
   echo "<p><a href=\"http://www.facebook.com/sharer.php?u=http%3A%2F%2Fgoo.gl%2F3XhDR&t=19 Questions Game\" class=\"btn btn-lg btn-success\">Share on Facebook</a>
@@ -54,7 +53,7 @@ if (isset ($_POST['action']) && $_POST['action'] == 'save') {
           <input name="objectname" value="<?= htmlentities($_GET['objectname']) ?>" type="hidden">
           <input name="q" value="<?= htmlentities($_GET['q']) ?>" type="hidden">
           <input name="action" value="save" type="hidden">
-          <p>You are about to teach <b>19 Questions</b> this information about <b><?= htmlspecialchars($objectName) ?></b>.</p>
+          <p class="lead">You are about to teach <b>19 Questions</b> this information about <b><?= htmlspecialchars($objectName) ?></b>.</p>
           <input class="btn btn-lg btn-primary" type="submit" value="Teach 19 Questions"></p>
         </form>
         <hr>

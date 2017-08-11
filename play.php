@@ -26,10 +26,10 @@ $numQuestions = count($NQ->askedQuestions);
   </head>
   <body>
     <div class="container">
-      <h2>19 Questions <small style="color:#333">you think of something, we guess it</small></h2>
+      <h2>19 Questions <small class="text-secondary">you think of something, we guess it</small></h2>
       <div class="jumbotron">
 <?php if (isset($_GET['wrapup']) || $numQuestions >= 40): ?>
-        <div class="alert alert-success"><strong>You win this round!</strong></div>
+        <p class="display-2 text-success">You win this round!</p>
         <h3>Were you thinking of one of these:</h3>
 <?php
 foreach ($NQ->getTopHunches() as $hunch) {
