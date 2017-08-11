@@ -62,7 +62,7 @@ class Engine
           $this->askedQuestions[] = array($name, $sub, 'skip', $reg[2]);
           break;
         case 'g':
-          $questionStatement->execute([$reg[2]]);
+          $objectStatement->execute([$reg[2]]);
           list($name, $sub) = $objectStatement->fetch(\PDO::FETCH_NUM);
           $this->guesses[] = $reg[2];
           $this->askedQuestions[] = array('I am guessing that it is ' . $name, $sub, 'wrong', $reg[2]);
