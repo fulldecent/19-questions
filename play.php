@@ -13,7 +13,7 @@ $numQuestions = count($NQ->askedQuestions);
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>19 Questions</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.min.css" integrity="sha384-rwoIResjU2yc3z8GV/NPeZWAv56rSmLldC3R/AZzGRnGxQQKnKkoFVhFQhNUwEyJ" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
     <link rel="stylesheet" href="assets/common.css">
     <script>var q="<?= $NQ->state ?>"</script>
     <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
@@ -26,10 +26,8 @@ $numQuestions = count($NQ->askedQuestions);
   </head>
   <body>
     <div class="container">
+      <h2>19 Questions <small style="color:#333">you think of something, we guess it</small></h2>
       <div class="jumbotron">
-          <h2>19 Questions <small style="color:#333">you think of something, we guess it</small></h2>
-        <hr>
-
 <?php if (isset($_GET['wrapup']) || $numQuestions >= 40): ?>
         <div class="alert alert-success"><strong>You win this round!</strong></div>
         <h3>Were you thinking of one of these:</h3>
@@ -43,8 +41,6 @@ foreach ($NQ->getTopHunches() as $hunch) {
 
 <hr>
 <h3>If not, please type the thing here:</h3>
-
-
 
 <form class="form form-inline mx-auto" action="save.php" method="get">
 <input name="q" type="hidden" value="<?= $NQ->state ?>">
@@ -80,7 +76,7 @@ $('#theobjectname').typeahead(null, {
   	echo "<div class=\"alert alert-info\"><strong>You've won this round!</strong> You can continue answering a few more questions or <a href=\"".basename($_SERVER['PHP_SELF'])."&#63;wrapup=yes&amp;q=".$NQ->state."\" class=\"btn btn-info\">tell me what you were thinking of</a> so I can learn.</div>\n";
   }
 
-  echo "<p><b>#". ($numQuestions+1) ."</b> ";
+  echo "<p class=\"lead\"><b>#". ($numQuestions+1) ."</b> ";
 
   list($text, $subtext, $choices) = $NQ->getNextQuestion();
   if (strlen($subtext)) $text .= " ($subtext)";
@@ -92,7 +88,7 @@ $('#theobjectname').typeahead(null, {
       $prefix = "save.php&#63;obj={$regs[1]}&amp;q=";
     else
       $prefix = basename($_SERVER['PHP_SELF']).'&#63;'.(isset($_GET['debug'])?'debug&amp;':'')."q=";
-    echo "<a class=\"btn btn-default\" rel=\"nofollow\" href=\"$prefix".$choice[1]."\">".$choice[0]."</a> ";
+    echo "<a class=\"btn btn-outline-primary\" rel=\"nofollow\" href=\"$prefix".$choice[1]."\">".$choice[0]."</a> ";
   }
   echo "</p><hr />";
 

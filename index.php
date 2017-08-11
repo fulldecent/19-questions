@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>19 Questions</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.min.css" integrity="sha384-rwoIResjU2yc3z8GV/NPeZWAv56rSmLldC3R/AZzGRnGxQQKnKkoFVhFQhNUwEyJ" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
     <link rel="stylesheet" href="assets/common.css">
   </head>
   <body>
@@ -20,7 +20,7 @@
         <div class="col-lg">
           <h4>Background</h4>
           <p>
-            <em>19 Questions</em> is a machine-learning game that finds out about things by playing games with users. The algorithm is based on Bayesian statistics, compared to other similar games which are based neural networks.
+            <em>19 Questions</em> is a machine-learning game that finds out about things by playing games with users. The algorithm is based on Bayesian statistics, compared to other similar games use neural networks.
           </p>
           <p>
             See also:
@@ -38,18 +38,18 @@ require 'local/config.php';
 require 'sources/autoload.php';
 $db = new \NineteenQ\Db();
 
-$qCount = $db->query("SELECT COUNT(*) FROM questions")->fetchColumn();
-$oCount = $db->query("SELECT COUNT(*) FROM objects")->fetchColumn();
-$cCount = $db->query("SELECT COUNT(*) FROM answers")->fetchColumn();
-$aCount = $db->query("SELECT COALESCE(SUM(yes+no+skip), 0) FROM answers")->fetchColumn();
-$oHits = $db->query("SELECT COALESCE(SUM(hits), 0) FROM objects")->fetchColumn();
-$newObjects = $db->query("SELECT COUNT(*) FROM objects WHERE visible=0")->fetchColumn();
+$qCount = $db->query('SELECT COUNT(*) FROM questions')->fetchColumn();
+$oCount = $db->query('SELECT COUNT(*) FROM objects')->fetchColumn();
+$cCount = $db->query('SELECT COUNT(*) FROM answers')->fetchColumn();
+$aCount = $db->query('SELECT COALESCE(SUM(yes+no+skip), 0) FROM answers')->fetchColumn();
+$oHits = $db->query('SELECT COALESCE(SUM(hits), 0) FROM objects')->fetchColumn();
+$newObjects = $db->query('SELECT COUNT(*) FROM objects WHERE visible=0')->fetchColumn();
 
-echo "<tr><td>Questions in knowledge base:<td>".number_format($qCount)."\n";
-echo "<tr><td>Objects in knowledge base:<td>".number_format($oCount)."\n";
-echo "<tr><td>Connections in knowledge base:<td>".number_format($cCount)."\n";
-echo "<tr><td>Games played:<td>".number_format($oHits)."\n";
-echo "<tr><td>New user-submitted objects:<td>".number_format($newObjects)."\n";
+echo '<tr><td>Questions in knowledge base:<td>'.number_format($qCount)."\n";
+echo '<tr><td>Objects in knowledge base:<td>'.number_format($oCount)."\n";
+echo '<tr><td>Connections in knowledge base:<td>'.number_format($cCount)."\n";
+echo '<tr><td>Games played:<td>'.number_format($oHits)."\n";
+echo '<tr><td>New user-submitted objects:<td>'.number_format($newObjects)."\n";
 echo "<!--<tr><td>Total questions asked<td>$aCount-->\n";
 
 ## Calculate entropy of objects
@@ -62,10 +62,10 @@ $sumFLogF = 0;
 //$productFPowerF = 1;
 $entropy = 0; // in bits
 
-$query = $db->query("SELECT hits FROM objects WHERE hits > 0");
+$query = $db->query('SELECT hits FROM objects WHERE hits > 0');
 $hitCounts = $query->fetchAll(PDO::FETCH_COLUMN);
 foreach ($hitCounts as $frequency) {
-//TODO: Don't use frequency, use freq+1, also use precalculated values  
+//TODO: Don't use frequency, use freq+1, also use precalculated values
   $sumFrequencies += $frequency;
   $sumFLogF += $frequency * log($frequency, $logBase);
   //$productFPowerF *= pow($frequency, $frequency);
@@ -76,7 +76,7 @@ if ($sumFrequencies > 0) {
   //$entropy = log($sumFrequencies * pow($productFPowerF, -1/$sumFrequencies), $logBase);
 }
 
-echo "<tr><td>Total object entropy:<td>".round($entropy,2)." bits\n";
+echo '<tr><td>Total object entropy:<td>'.number_format($entropy, 2)." bits\n";
 ?>
           </table>
         </div>
