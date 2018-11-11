@@ -37,7 +37,7 @@ spl_autoload_register(
 
         // if the file exists, require it
         if (file_exists($file)) {
-            include $file;
+            require $file;
         }
     }
 );
