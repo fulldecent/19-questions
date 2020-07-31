@@ -4,7 +4,7 @@ You have a bag of marbles {3 red, 2 blue, 1 black}. What is the probability of c
 
 You have a bag of purple, green, and white marbles. You pick & replace a marble several times, the results are {4 purple, 2 green, 6 white}. What is the propability of picking purple next time? The PROBABILITY is unknown, but you can ESTIMATE it as (4+1)/(4+1 + 2+1 + 6+1). This is MAXIMUM LIKELIHOOD ESTIMATION.
 
-(Another ESTIMATE could be "there are some many colors out there, the odds of getting exactly green again are zero". There are even more ESTIMATION techniques, but we are using MLE today.)
+(Another ESTIMATE could be "there are so many colors out there, the odds of getting exactly green again are zero". There are even more ESTIMATION techniques, but we are using MLE today.)
 
 Before somebody picks a marble, we may want to calculate ENTROPY, which is how much uncertainty we have about which marble they will pick. ENTROPY requires knowledge of PROBABILITY which we don't have, but we can ESTIMATE using MAXIMUM LIKELIHOOD ESTIMATION. For more on ENTROPY, see http://fulldecent.blogspot.com/2009/12/interesting-properties-of-entropy.html
 
