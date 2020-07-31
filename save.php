@@ -43,8 +43,7 @@ if (isset ($_POST['action']) && $_POST['action'] == 'save') {
   echo "<hr>";
   echo '<p>Please tell everyone you know about this project. That is how I learn.';
   echo "<p><a href=\"http://www.facebook.com/sharer.php?u=http%3A%2F%2Fgoo.gl%2F3XhDR&t=19 Questions Game\" class=\"btn btn-lg btn-success\">Share on Facebook</a>
-          <a href=\"http://twitter.com/intent/tweet?text=19 Questions Game&url=http%3A%2F%2Fgoo.gl%2F3XhDR\" class=\"btn btn-lg btn-success\">Share on Twitter</a>
-          <a href=\"https://plusone.google.com/_/+1/confirm?hl=en&url=http%3A%2F%2Fgoo.gl%2F3XhDR\" class=\"btn btn-lg btn-success\">Share on Google Plus</a></p>";
+          <a href=\"http://twitter.com/intent/tweet?text=19 Questions Game&url=http%3A%2F%2Fgoo.gl%2F3XhDR\" class=\"btn btn-lg btn-success\">Share on Twitter</a></p>";
   echo '<p>See GitHub project. https://github.com/fulldecent/19-questions';
 } else {
 ?>
