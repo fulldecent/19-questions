@@ -1,8 +1,11 @@
 <?php
 namespace NineteenQ;
 
-// FROM https://github.com/fulldecent/thin-pdo
-
+/**
+ * Minimal wrapper as per https://phpdelusions.net/pdo/
+ * 
+ * Loads from constant DB_DSN
+ */
 class Db extends \PDO {
     public function __construct() {
         $options = [

@@ -7,7 +7,7 @@ Please see the README to understand what is in project scope and what contributi
 ## Release process
 
 - [ ] Perform manual user testing to ensure the project is working
-    * Use PHP 5.6 on latest macOS
+    * Use PHP 8.1 on latest macOS
     * Play a game
     * Save results
     * Try using the object search on the "I won" page

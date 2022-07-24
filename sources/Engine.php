@@ -94,31 +94,33 @@ class Engine
     if (!empty($this->_didEstimateObjectLikelihoods)) return;
     $this->_didEstimateObjectLikelihoods = 1;
 
-    $placeholdersY = join(array_fill(0, count($this->yesses), '?'), ',');
-    $placeholdersN = join(array_fill(0, count($this->noes), '?'), ',');
-    $placeholdersS = join(array_fill(0, count($this->skips), '?'), ',');
-    $placeholdersG = join(array_fill(0, count($this->guesses), '?'), ',');
-    $sql = "
-    SELECT objects.objectid,
-           objects.calc_logl + COALESCE(SUM(evidence.logl), 0) logl
---           1 + COALESCE(SUM(evidence.logl), 0) logl
---           COALESCE(SUM(evidence.logl), 0) logl
-      FROM objects
-           LEFT JOIN
-           (SELECT objectid, calc_y3ll logl FROM answers WHERE questionid IN ($placeholdersY)
-             UNION ALL
-            SELECT objectid, calc_n3ll logl FROM answers WHERE questionid IN ($placeholdersN)
-             UNION ALL
-            SELECT objectid, calc_s3ll logl FROM answers WHERE questionid IN ($placeholdersS)) evidence
-           ON evidence.objectid = objects.objectid
-     WHERE visible = 1
-       AND objects.objectid NOT IN ($placeholdersG)
-     GROUP BY objects.objectid";
+    $placeholdersY = implode(',' , array_fill(0, count($this->yesses), '?'));
+    $placeholdersN = implode(',' , array_fill(0, count($this->noes), '?'));
+    $placeholdersS = implode(',' , array_fill(0, count($this->skips), '?'));
+    $placeholdersG = implode(',' , array_fill(0, count($this->guesses), '?'));
+    $sql = <<<SQL
+SELECT objects.objectid,
+       objects.calc_logl + COALESCE(SUM(evidence.logl), 0) logl
+--        1 + COALESCE(SUM(evidence.logl), 0) logl
+--        COALESCE(SUM(evidence.logl), 0) logl
+  FROM objects
+  LEFT JOIN (
+           SELECT objectid, calc_y3ll logl FROM answers WHERE questionid IN ($placeholdersY)
+           UNION ALL
+           SELECT objectid, calc_n3ll logl FROM answers WHERE questionid IN ($placeholdersN)
+           UNION ALL
+           SELECT objectid, calc_s3ll logl FROM answers WHERE questionid IN ($placeholdersS)
+        ) evidence
+     ON evidence.objectid = objects.objectid
+  WHERE visible = 1
+    AND objects.objectid NOT IN ($placeholdersG)
+  GROUP BY objects.objectid
+SQL;
     $binds = array_merge($this->yesses, $this->noes, $this->skips, $this->guesses);
     $statement = $this->database->prepare($sql);
     $statement->execute($binds);
 
-    // I'd rather do this transformation in SQL but SQLite math functions are limited
+    //TODO: I'd rather do this transformation in SQL but SQLite math functions are limited. Any tricks?
     $this->database->beginTransaction();
     $this->database->exec('CREATE TEMPORARY TABLE object_likelihood(objectid PRIMARY KEY, l REAL, lll REAL)');
     $insertStatement = $this->database->prepare('INSERT INTO object_likelihood VALUES(?,?,?)');
@@ -144,13 +146,13 @@ class Engine
   {
     if (!empty($this->hunches)) return $this->hunches;
     $this->estimateObjectLikelihoods();
-    $sql = '
-      SELECT objects.objectid objectId, objects.name, objects.subname, l likelihood
-        FROM object_likelihood
-        JOIN objects ON objects.objectid = object_likelihood.objectid
-       ORDER BY l DESC
-       LIMIT 10
-    ';
+    $sql = <<<SQL
+SELECT objects.objectid objectId, objects.name, objects.subname, l likelihood
+  FROM object_likelihood
+  JOIN objects ON objects.objectid = object_likelihood.objectid
+ ORDER BY l DESC
+ LIMIT 10
+SQL;    
     $statement = $this->database->query($sql);
     $this->hunches = $statement->fetchAll(\PDO::FETCH_OBJ);
     return $this->hunches;
@@ -171,20 +173,27 @@ class Engine
     $start = microtime(true);
     $this->estimateObjectLikelihoods();
     $binds = array_merge($this->yesses, $this->noes, $this->skips);
-    $placeholdersSkipQuestions = join(array_fill(0, count($binds), '?'), ',');
-    $sql = "SELECT questions.questionid, questions.name, questions.subname,
-                   calc_y3lmin1 * SUM(state.l) as yes_delta_l,
-                   SUM(calc_y3lmin1 * state.lll + state.l * calc_y3lll) as yes_delta_lll,
-                   calc_n3lmin1 * SUM(state.l) as no_delta_l,
-                   SUM(calc_n3lmin1 * state.lll + state.l * calc_n3lll) as no_delta_lll,
-                   calc_s3lmin1 * SUM(state.l) as skip_delta_l,
-                   SUM(calc_s3lmin1 * state.lll + state.l * calc_s3lll) as skip_delta_lll,
-COUNT(*), SUM(state.l), SUM(state.lll), SUM(calc_y3lmin1 + calc_n3lmin1 + calc_s3lmin1)
-              FROM questions
-              JOIN answers ON answers.questionid = questions.questionid
-              JOIN object_likelihood state ON answers.objectid = state.objectid
-             WHERE questions.questionid NOT IN ($placeholdersSkipQuestions)
-             GROUP BY questions.questionid";
+    $placeholdersSkipQuestions = implode(',', array_fill(0, count($binds), '?'));
+    $sql = <<<SQL
+SELECT questions.questionid
+     , questions.name
+     , questions.subname
+     , calc_y3lmin1 * SUM(state.l) as yes_delta_l
+     , SUM(calc_y3lmin1 * state.lll + state.l * calc_y3lll) as yes_delta_lll
+     , calc_n3lmin1 * SUM(state.l) as no_delta_l
+     , SUM(calc_n3lmin1 * state.lll + state.l * calc_n3lll) as no_delta_lll
+     , calc_s3lmin1 * SUM(state.l) as skip_delta_l
+     , SUM(calc_s3lmin1 * state.lll + state.l * calc_s3lll) as skip_delta_lll
+     , COUNT(*)
+     , SUM(state.l)
+     , SUM(state.lll)
+     , SUM(calc_y3lmin1 + calc_n3lmin1 + calc_s3lmin1)
+  FROM questions
+  JOIN answers ON answers.questionid = questions.questionid
+  JOIN object_likelihood state ON answers.objectid = state.objectid
+ WHERE questions.questionid NOT IN ($placeholdersSkipQuestions)
+ GROUP BY questions.questionid
+SQL;
     $statement = $this->database->prepare($sql);
     $statement->execute($binds);
     $questions = [];
@@ -303,12 +312,7 @@ COUNT(*), SUM(state.l), SUM(state.lll), SUM(calc_y3lmin1 + calc_n3lmin1 + calc_s
     $statement1->execute([$objectId]);
     $hits = $statement1->fetchColumn();
 
-    $sql2 = '
-      UPDATE objects
-         SET hits = hits + 1,
-             calc_logl = ?
-       WHERE objectid = ?
-    ';
+    $sql2 = 'UPDATE objects SET hits = hits + 1, calc_logl = ? WHERE objectid = ?';
     $statement2 = $this->database->prepare($sql2);
     $statement2->execute([log($hits + 1, 2), $objectId]);
 
