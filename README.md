@@ -26,6 +26,6 @@ The computer wins if it correctly guesses the player’s object within 19 questi
 
 The player’s history of answers are compared against other player’s past responses to questions. We use an unbiased maximum likelihood estimator to find the likelihood of each known object being the player’s object. We use these likelihood weightings and estimate the entropy of this uncertainty. We then choose a question which is expected to minimize this entropy. If entropy is low we hazard a guess of what the object is.
 
-For a deeper technical explanation, see TECHNICAL.md and https://fulldecent.blogspot.com/2009/12/interesting-properties-of-entropy.html
+For a deeper technical explanation, see TECHNICAL.md and https://blog.phor.net/interesting-properties-of-entropy
 
  
