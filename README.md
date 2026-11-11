@@ -30,8 +30,8 @@ For a deeper technical explanation, see TECHNICAL.md and https://blog.phor.net/i
 
 ## References
 
-1. This project is built based on [best practices documented in php-package-template](https://github.com/fulldecent/php-package-template/), release 1.0.0. [`.editorconfig`](.editorconfig) takes that release's PHP rule: [PSR-12](https://www.php-fig.org/psr/psr-12/) four-space indent for `*.php`, and the shared UTF-8, LF, and final-newline rules.
-1. 19-questions is a PHP website installed from [SCHEMA.sql](SCHEMA.sql). php-package-template release 1.0.0 is a Composer package. This repository does not take its `composer.json`, PHPUnit, PHPStan, `.php-version`, or the Release Please workflow that attests a zip.
-1. This project is released under the [MIT license](LICENSE).
+1. This project is built based on [best practices documented in php-package-template](https://github.com/fulldecent/php-package-template/), release v1.1.1. [`.editorconfig`](.editorconfig) takes that release's PHP rule: [PSR-12](https://www.php-fig.org/psr/psr-12/) four-space indent for `*.php`, and the shared UTF-8, LF, and final-newline rules.
+1. 19-questions is a PHP website installed from [SCHEMA.sql](SCHEMA.sql). php-package-template release v1.1.1 is a Composer package. This repository does not take its `composer.json`, PHPUnit, PHPStan, `.php-version`, or the Release Please workflow that attests a zip.
+1. This project is released under the [MIT license](LICENSE.md).
 
  
